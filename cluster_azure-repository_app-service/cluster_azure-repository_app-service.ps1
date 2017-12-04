@@ -242,7 +242,7 @@ function Add-AppServiceToExistingVnet($subscriptionId, $webAppResourceGroup, $we
     # Put the VPN client configuration package onto the App
     $virtualNetworkGatewayParameters = @{
         "vnetName" = $vnet.Name; 
-        "vpnPackageUri" = $packageUri
+        "vpnPackageUri" = $packageUri.ToString().Trim('"')
     }
 
     Write-Log "Adding website $webAppName to Virtual Network $($vnet.Name)"
