@@ -1,6 +1,6 @@
 # Elastic ARM template examples
 
-Example scripts that demonstrate different deployment secnarios for [Elastic's ARM template](https://github.com/elastic/azure-marketplace)
+Example scripts that demonstrate different deployment scenarios for [Elastic's ARM template](https://github.com/elastic/azure-marketplace)
 
 1. [Storage account and Elasticsearch cluster. Set up the storage account for snapshot/restore](https://github.com/elastic/azure-marketplace-examples/tree/master/snapshot_restore)
 
