@@ -64,7 +64,7 @@ Param(
     [Parameter(Mandatory=$true, HelpMessage="Password for the Admin user to log into VMs")]
     [securestring] $AdminPassword,
 
-    [Parameter(Mandatory=$true, HelpMessage="Password for to bootstrap the cluster with")]
+    [Parameter(Mandatory=$true, HelpMessage="Password to bootstrap the cluster with")]
     [securestring] $SecurityBootstrapPassword,
 
     [Parameter(Mandatory=$true, HelpMessage="Password for the built-in 'elastic' user")]
@@ -83,22 +83,22 @@ Param(
     [securestring] $SecurityBeatsPassword,
 
     [Parameter(Mandatory=$false)]
-    [string] $EventHubResourceGroup = "russ-eventhubs",
+    [string] $EventHubResourceGroup = "logstash-monitor-eventhubs",
 
     [Parameter(Mandatory=$false)]
-    [string] $EventHubNamespaceName = "russ-eventhubs",
+    [string] $EventHubNamespaceName = "logstash-monitor-eventhubs",
 
     [Parameter(Mandatory=$false)]
-    [string] $StorageResourceGroup = "russ-logstash-storage",
+    [string] $StorageResourceGroup = "logstash-monitor-storage",
 
     [Parameter(Mandatory=$false)]
-    [string] $StorageAccountName = "russlogstashstorage",
+    [string] $StorageAccountName = "logstashstorage$([System.Guid]::NewGuid().ToString().Replace('-', '').Substring(0, 9))",
 
     [Parameter(Mandatory=$false)]
-    [string] $ResourceGroup = "russ-logstash-monitor",
+    [string] $ResourceGroup = "logstash-monitor",
 
     [Parameter(Mandatory=$false)]
-    [string] $Name = "russ-logstash-monitor",
+    [string] $Name = "logstash-monitor",
 
     [Parameter(Mandatory=$false)]
     [string] $Location = "Australia Southeast"
@@ -203,7 +203,7 @@ $eventHubEndpoint = $eventHubNamespace.ServiceBusEndpoint.Replace("https://", "s
 
 Write-Log "Get the SAS key for event hub namespace $EventHubNamespaceName"
 # get shared access key for the event hub namespace. Doesn't look like there is a PowerShell cmdlet to do this anymore :(
-$sharedAccessKey = (Invoke-AzureRmResourceAction -ResourceGroupName $eventHubResourceGroup -ResourceType Microsoft.EventHub/namespaces/AuthorizationRules `
+$sharedAccessKey = (Invoke-AzureRmResourceAction -ResourceGroupName $EventHubResourceGroup -ResourceType Microsoft.EventHub/namespaces/AuthorizationRules `
                         -ResourceName $EventHubNamespaceName/RootManageSharedAccessKey -Action listKeys -ApiVersion 2015-08-01 -Force).primaryKey
 
 ##############################
@@ -252,7 +252,6 @@ $storageConnectionString = "DefaultEndpointsProtocol=$($uri.Scheme);AccountName=
 
 # assumes we're using Azure DNS resolution, which can resolve by hostname
 $kibanaIp = "kibana"
-$vNetLoadBalancerIp = "10.0.0.4"
 $logstashConsumerGroup = "logstash"
 $elasticUserPassword = ConvertTo-PlainText $SecurityAdminPassword
 
@@ -327,7 +326,6 @@ $clusterParameters = @{
     "logstashAdditionalYaml" = $logstashYaml
 
     "loadBalancerType" = "internal"
-    "vNetLoadBalancerIp" = $vNetLoadBalancerIp
 
     "xpackPlugins" = "Yes"
     "adminUsername" = $AdminUserName
