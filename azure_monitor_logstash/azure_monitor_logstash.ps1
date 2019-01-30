@@ -371,9 +371,9 @@ Steps on Logstash VM to finish Azure Monitor configuration
 4. Need to run one time setup for Logstash module to export Dashboards to Kibana.
 Get the keystore password from /etc/sysconfig/logstash and export to environment variables
 
-    myKibanaPass=$(sudo grep -Po "(?<=^LOGSTASH_KEYSTORE_PASS=).*" /etc/sysconfig/logstash)
+    logstashPass=$(sudo grep -Po "(?<=^LOGSTASH_KEYSTORE_PASS=).*" /etc/sysconfig/logstash)
 
-    export LOGSTASH_KEYSTORE_PASS=$myKibanaPass
+    export LOGSTASH_KEYSTORE_PASS=$logstashPass
     
 5. Run Logstash setup with logstash user, passing environment variables
 
