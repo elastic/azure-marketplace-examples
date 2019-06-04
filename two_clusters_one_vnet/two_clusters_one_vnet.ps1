@@ -4,17 +4,25 @@
 .Example
     & .\two_clusters_one_vnet.ps1 -AdminUserName "russ" `
     -AdminPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
-    -SecurityAdminPassword $(ConvertTo-SecureString -String "Password123" -AsPlainText -Force) `
-    -SecurityReadPassword $(ConvertTo-SecureString -String "Password123" -AsPlainText -Force) `
-    -SecurityKibanaPassword $(ConvertTo-SecureString -String "Password123" -AsPlainText -Force)
+    -SecurityBootstrapPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityAdminPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityKibanaPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityLogstashPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityBeatsPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityApmPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityRemoteMonitoringPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force)
 .Example
     & .\two_clusters_one_vnet.ps1 -ClientId "clientid" `
     -ClientSecret $(ConvertTo-SecureString -String "clientsecret" -AsPlainText -Force) `
     -TenantId "tenantid" -SubscriptionId "subscriptionid" `
     -AdminUserName "russ" -AdminPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
-    -SecurityAdminPassword $(ConvertTo-SecureString -String "Password123" -AsPlainText -Force) `
-    -SecurityReadPassword $(ConvertTo-SecureString -String "Password123" -AsPlainText -Force) `
-    -SecurityKibanaPassword $(ConvertTo-SecureString -String "Password123" -AsPlainText -Force)
+    -SecurityBootstrapPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityAdminPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityKibanaPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityLogstashPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityBeatsPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityApmPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force) `
+    -SecurityRemoteMonitoringPassword $(ConvertTo-SecureString -String "Password1234" -AsPlainText -Force)
 .Parameter ClientId
     the client id to log in with a Service Principal
 .Parameter ClientSecret
@@ -28,12 +36,20 @@
     the admin username in order to log into VMs deployed in the Elasticsearch cluster
 .Parameter AdminPassword
     the admin password in order to log into VMs deployed in the Elasticsearch cluster 
+.Parameter SecurityBootstrapPassword
+    the password to bootstrap an Elasticsearch cluster
 .Parameter SecurityAdminPassword
-    the password to log into the Elasticsearch cluster through X-Pack Security with user 'es_admin' (2.x) or 'elastic' (5.x)
-.Parameter SecurityReadPassword
-    the password to log into the Elasticsearch cluster through X-Pack Security with user 'es_read'
+    the password to log into the Elasticsearch cluster through X-Pack Security with user 'elastic'
 .Parameter SecurityKibanaPassword
-    the password to log into the Elasticsearch cluster through X-Pack Security with user 'es_kibana'
+    the password to log into the Elasticsearch cluster through X-Pack Security with user 'kibana'
+.Parameter SecurityLogstashPassword
+    the password to log into the Elasticsearch cluster through X-Pack Security with user 'logstash_system'
+.Parameter SecurityBeatsPassword
+    the password to log into the Elasticsearch cluster through X-Pack Security with user 'beats_system'
+.Parameter SecurityApmPassword
+    the password to log into the Elasticsearch cluster through X-Pack Security with user 'apm_system'
+.Parameter SecurityRemoteMonitoringPassword
+    the password to log into the Elasticsearch cluster through X-Pack Security with user 'remote_monitoring_user'
 #>
 [CmdletBinding()]
 Param(
@@ -56,18 +72,30 @@ Param(
     [securestring] $AdminPassword,
 
     [Parameter(Mandatory=$true)]
+    [securestring] $SecurityBootstrapPassword,
+
+    [Parameter(Mandatory=$true)]
     [securestring] $SecurityAdminPassword,
 
     [Parameter(Mandatory=$true)]
-    [securestring] $SecurityReadPassword,
-  
+    [securestring] $SecurityKibanaPassword,
+
     [Parameter(Mandatory=$true)]
-    [securestring] $SecurityKibanaPassword
+    [securestring] $SecurityLogstashPassword,
+
+    [Parameter(Mandatory=$true)]
+    [securestring] $SecurityBeatsPassword,
+
+    [Parameter(Mandatory=$true)]
+    [securestring] $SecurityApmPassword,
+
+    [Parameter(Mandatory=$true)]
+    [securestring] $SecurityRemoteMonitoringPassword
 )
 $ErrorActionPreference = "Stop"
 
 function Write-Log($Message, $ForegroundColor) {
-    if ($ForegroundColor -eq $null) {
+    if ($null -eq $ForegroundColor) {
         $ForegroundColor = "White"
     }
 
@@ -104,15 +132,15 @@ function Show-Subscription() {
     }
 
     if($subs.Length -eq 1) {
-        $subscriptionId = $subs[0].SubscriptionId
+        $subscriptionId = $subs[0].Id
     }
     else {
         $subscriptionChoices = @()
         $subscriptionValues = @()
 
         foreach($subscription in $subs) {
-            $subscriptionChoices += "$($subscription.SubscriptionName) ($($subscription.SubscriptionId))";
-            $subscriptionValues += ($subscription.SubscriptionId);
+            $subscriptionChoices += "$($subscription.Name) ($($subscription.Id))";
+            $subscriptionValues += ($subscription.Id);
         }
 
         $subscriptionId = Show-Custom "Choose a subscription" $subscriptionValues $subscriptionChoices
@@ -222,22 +250,26 @@ Add-AzureRmVirtualNetworkSubnetConfig -Name $subnetName -AddressPrefix "10.0.0.0
 Set-AzureRmVirtualNetwork -VirtualNetwork $vnet
 Write-Log "subnet added" -ForegroundColor "green"
 
-$templateVersion = "5.1.2"
+$templateVersion = "7.0.0"
 $templateUrl = "https://raw.githubusercontent.com/elastic/azure-marketplace/$templateVersion/src"
 $mainTemplate = "$templateUrl/mainTemplate.json"
-$resourceGroup = "first-cluster"
-$name = $resourceGroup
+$firstCluster = "first-cluster"
+$name = $firstCluster
 $availableAddresses = Get-AvailablePrivateIpAddresses -VNet $vnet -SubnetName $subnetName -Count 8
 
 $templateParameters = @{
     "artifactsBaseUrl"= $templateUrl
-    "esClusterName" = "first-cluster"
+    "esClusterName" = $firstCluster
     "adminUsername" = $AdminUserName
     "authenticationType" = "password"
     "adminPassword" = $AdminPassword
+    "securityBootstrapPassword" = $SecurityBootstrapPassword
     "securityAdminPassword" = $SecurityAdminPassword
-    "securityReadPassword" = $SecurityReadPassword
     "securityKibanaPassword" = $SecurityKibanaPassword
+    "securityLogstashPassword" = $SecurityLogstashPassword
+    "securityBeatsPassword" = $SecurityBeatsPassword
+    "securityApmPassword" = $SecurityApmPassword
+    "securityRemoteMonitoringPassword" = $SecurityRemoteMonitoringPassword
     "vmHostNamePrefix" = "f-"
     "vNetNewOrExisting" = "existing"
     "vNetName" = $vnetName
@@ -247,24 +279,28 @@ $templateParameters = @{
 }
 
 Write-Log "Deploying first cluster"
-New-AzureRmResourceGroup -Name $resourceGroup -Location $location
-New-AzureRmResourceGroupDeployment -Name $name -ResourceGroupName $resourceGroup `
+New-AzureRmResourceGroup -Name $firstCluster -Location $location
+New-AzureRmResourceGroupDeployment -Name $name -ResourceGroupName $firstCluster `
     -TemplateUri $mainTemplate -TemplateParameterObject $templateParameters
 Write-Log "Deployed first cluster" -ForegroundColor "green"
 
-$resourceGroup = "second-cluster"
-$name = $resourceGroup
+$secondCluster = "second-cluster"
+$name = $secondCluster
 $availableAddresses = Get-AvailablePrivateIpAddresses -VNet $vnet -SubnetName $subnetName -Count 8
 
 $templateParameters = @{
     "artifactsBaseUrl"= $templateUrl
-    "esClusterName" = "second-cluster"
+    "esClusterName" = $secondCluster
     "adminUsername" = $AdminUserName
     "authenticationType" = "password"
     "adminPassword" = $AdminPassword
+    "securityBootstrapPassword" = $SecurityBootstrapPassword
     "securityAdminPassword" = $SecurityAdminPassword
-    "securityReadPassword" = $SecurityReadPassword
     "securityKibanaPassword" = $SecurityKibanaPassword
+    "securityLogstashPassword" = $SecurityLogstashPassword
+    "securityBeatsPassword" = $SecurityBeatsPassword
+    "securityApmPassword" = $SecurityApmPassword
+    "securityRemoteMonitoringPassword" = $SecurityRemoteMonitoringPassword
     "vmHostNamePrefix" = "s-"
     "vNetNewOrExisting" = "existing"
     "vNetName" = $vnetName
@@ -274,7 +310,7 @@ $templateParameters = @{
 }
 
 Write-Log "Deploying second cluster"
-New-AzureRmResourceGroup -Name $resourceGroup -Location $location
-New-AzureRmResourceGroupDeployment -Name $name -ResourceGroupName $resourceGroup `
+New-AzureRmResourceGroup -Name $secondCluster -Location $location
+New-AzureRmResourceGroupDeployment -Name $name -ResourceGroupName $secondCluster `
     -TemplateUri $mainTemplate -TemplateParameterObject $templateParameters
 Write-Log "Deployed second cluster" -ForegroundColor "green"
