@@ -21,14 +21,16 @@
     the bootstrap password to initially log into the Elasticsearch cluster through X-Pack Security
 .Parameter SecurityAdminPassword
     the password to log into the Elasticsearch cluster through X-Pack Security with built-in user 'elastic'
-.Parameter SecurityReadPassword
-    the password to log into the Elasticsearch cluster through X-Pack Security with user 'es_read'
 .Parameter SecurityKibanaPassword
     the password to log into the Elasticsearch cluster through X-Pack Security with built-in user 'kibana'
 .Parameter SecurityLogstashPassword
     the password to log into the Elasticsearch cluster through X-Pack Security with built-in user 'logstash_system'
 .Parameter SecurityBeatsPassword
     the password to log into the Elasticsearch cluster through X-Pack Security with built-in user 'beats_system'
+.Parameter SecurityApmPassword
+    the password to log into the Elasticsearch cluster through X-Pack Security with built-in user 'apm_system'
+.Parameter SecurityRemoteMonitoringPassword
+    the password to log into the Elasticsearch cluster through X-Pack Security with built-in user 'remote_monitoring_user'
 .Parameter EventHubResourceGroup
     the resource group for event hubs
 .Parameter EventHubNamespaceName
@@ -69,9 +71,6 @@ Param(
 
     [Parameter(Mandatory=$true, HelpMessage="Password for the built-in 'elastic' user")]
     [securestring] $SecurityAdminPassword,
-
-    [Parameter(Mandatory=$true, HelpMessage="Password for a read-only 'es_read' user")]
-    [securestring] $SecurityReadPassword,
   
     [Parameter(Mandatory=$true, HelpMessage="Password for the built-in 'kibana' user")]
     [securestring] $SecurityKibanaPassword,
@@ -81,6 +80,12 @@ Param(
 
     [Parameter(Mandatory=$true, HelpMessage="Password for the built-in 'beats_system' user")]
     [securestring] $SecurityBeatsPassword,
+
+    [Parameter(Mandatory=$true, HelpMessage="Password for the built-in 'apm_system' user")]
+    [securestring] $SecurityApmPassword,
+
+    [Parameter(Mandatory=$true, HelpMessage="Password for the built-in 'remote_monitoring_user' user")]
+    [securestring] $SecurityRemoteMonitoringPassword,
 
     [Parameter(Mandatory=$false)]
     [string] $EventHubResourceGroup = "logstash-monitor-eventhubs",
@@ -223,7 +228,7 @@ $logProfileName = "default"
 $locations = (Get-AzureRmLocation).Location
 $locations += "global"
 $serviceBusRuleId = "/subscriptions/$subscriptionId/resourceGroups/$EventHubResourceGroup" + `
-                    "/providers/Microsoft.EventHub/namespaces/$EventHubNamespaceName" + ` 
+                    "/providers/Microsoft.EventHub/namespaces/$EventHubNamespaceName" + `
                     "/authorizationrules/RootManageSharedAccessKey"
 
 Write-Log "Create log profile $logProfileName"
@@ -254,6 +259,7 @@ $storageConnectionString = "DefaultEndpointsProtocol=$($uri.Scheme);AccountName=
 $kibanaIp = "kibana"
 $logstashConsumerGroup = "logstash"
 $elasticUserPassword = ConvertTo-PlainText $SecurityAdminPassword
+$kibanaUserPassword = ConvertTo-PlainText $SecurityKibanaPassword
 
 #########################################################
 # Build the yaml to append to the template's logstash.yml
@@ -268,7 +274,7 @@ modules:
     var.kibana.ssl.enabled: false
     var.kibana.host: `"$($kibanaIp):5601`"
     var.kibana.username: elastic
-    var.kibana.password: `"$elasticUserPassword`"
+    var.kibana.password: `"$kibanaUserPassword`"
     var.input.azure_event_hubs.consumer_group: "$logstashConsumerGroup"
     var.input.azure_event_hubs.storage_connection: "$storageConnectionString"
     var.input.azure_event_hubs.threads: 9
@@ -289,9 +295,9 @@ while ($null -eq $eventHubs) {
     $eventHubs = Get-AzureRmEventHub -ResourceGroupName $EventHubResourceGroup -Namespace $EventHubNamespaceName  
 }
 
-$entityPaths = $eventHubs | % { $_.Name }
+$entityPaths = $eventHubs | ForEach-Object { $_.Name }
 
-$entityPaths | % {
+$entityPaths | ForEach-Object {
     Write-Log "Add consumer group $logstashConsumerGroup to event hub $_"
     New-AzureRmEventHubConsumerGroup -ResourceGroupName $EventHubResourceGroup -Namespace $EventHubNamespaceName -Name $logstashConsumerGroup -EventHub $_
     Write-Log "Add event hub $_ to logstash.yml"
@@ -303,13 +309,14 @@ $entityPaths | % {
 ###########################################
 
 # last template version tag released to Marketplace
-$templateVersion = "6.4.2"
-$templateUrl = "https://raw.githubusercontent.com/elastic/azure-marketplace/$templateVersion/src"
-$elasticTemplate = "$templateUrl/mainTemplate.json"
+$templateVersion = "7.3.0"
+$templateUrl = "https://raw.githubusercontent.com/elastic/azure-marketplace/$templateVersion/src/"
+$elasticTemplate = "$($templateUrl)mainTemplate.json"
 
+# You probably want to change these parameters to suit your needs
 $clusterParameters = @{
-    "artifactsBaseUrl"= $templateUrl
-    "esVersion" = "6.4.2"
+    "_artifactsLocation"= $templateUrl
+    "esVersion" = $templateVersion
     "esClusterName" = $name
     "vmDataDiskCount" = 2
     "vmDataNodeCount" = 3
@@ -322,9 +329,10 @@ $clusterParameters = @{
 
     "logstash" = "Yes"
     "vmSizeLogstash" = "Standard_D1_v2"
-    "logstashKeystorePassword" = "Password123"
+    "logstashKeystorePassword" = $SecurityBootstrapPassword
     "logstashAdditionalYaml" = $logstashYaml
 
+    # Deploy only an internal load balancer. Elasticsearch is not directly accessible on a public IP
     "loadBalancerType" = "internal"
 
     "xpackPlugins" = "Yes"
@@ -333,10 +341,11 @@ $clusterParameters = @{
     "adminPassword" = $AdminPassword
     "securityBootstrapPassword" = $SecurityBootstrapPassword
     "securityAdminPassword" = $SecurityAdminPassword
-    "securityReadPassword" = $SecurityReadPassword
     "securityKibanaPassword" = $SecurityKibanaPassword
     "securityLogstashPassword" = $SecurityLogstashPassword
     "securityBeatsPassword" = $SecurityBeatsPassword
+    "securityApmPassword" = $SecurityApmPassword
+    "securityRemoteMonitoringPassword" = $SecurityRemoteMonitoringPassword
 }
 
 
@@ -358,7 +367,7 @@ Steps on Logstash VM to finish Azure Monitor configuration
 
     ssh <adminname>@<kibana ip>
 
-    ssh logstash
+    ssh logstash-0
 
 2. Stop Logstash service with systemctl
 
@@ -371,9 +380,9 @@ Steps on Logstash VM to finish Azure Monitor configuration
 4. Need to run one time setup for Logstash module to export Dashboards to Kibana.
 Get the keystore password from /etc/sysconfig/logstash and export to environment variables
 
-    logstashPass=$(sudo grep -Po "(?<=^LOGSTASH_KEYSTORE_PASS=).*" /etc/sysconfig/logstash)
+    logstashPass=$(sudo grep -Po "(?<=^LOGSTASH_KEYSTORE_PASS=).*" /etc/sysconfig/logstash | sed 's/"//g')
 
-    export LOGSTASH_KEYSTORE_PASS=$logstashPass
+    export LOGSTASH_KEYSTORE_PASS="$logstashPass"
     
 5. Run Logstash setup with logstash user, passing environment variables
 
