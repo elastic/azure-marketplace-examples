@@ -1,6 +1,14 @@
 
 # Deploy a cluster configured with Logstash Azure Monitor module
 
+This script creates an Elasticsearch cluster along with an instance of Kibana and Logstash, to ingest activity logs from Azure Monitor. 
+
+3 resource groups are created
+
+- The Elastic Stack and resources
+- A storage account for persisting Logstash read data
+- An Event hub namespace 
+
 Run the PowerShell script in this directory. Once the script has finished and deployed all necessary resources,
 a one-time set of operations need to be performed to setup the Azure Monitor module:
 
